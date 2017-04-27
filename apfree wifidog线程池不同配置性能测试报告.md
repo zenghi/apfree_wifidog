@@ -1,154 +1,68 @@
 apfree_wifidog性能测试报告
 ========
 # 测试目的 #
-本次主要针对wifidog在不同线程数以及不同队列数下处理http请求的能力，也就是其稳定性做一个对比测试，
-# 测试场景设计 #
-## 测试方法 ##
-通过软件发起多个http请求来达到测试wifidog处理请求的能力，也就是其稳定性。查看后台<br />
-监控wifidog异常，逐渐增加发送连接请求次数直到wifidog死掉或者重启。
-## 测试场景 ##
-将刷好的带wifidog认证的路由器接入Internet和测试机（手机或电脑），使用电脑<br />
-连接路由器后台，以便随时监控wifidog，运行软件不断发起http请求。
-### 场景一 ###
-wifidog在标准模式下运行，设置http并发数100，运行10分钟
-### 场景二 ###
-wifidog运行线程池模式下，设置线程数为5，队列数20。设置http并发数100，运行10分钟
-### 场景三 ###
-wifidog运行线程池模式下，设置线程数为10，队列数20。设置http并发数100，运行10分钟
-### 场景四 ###
-wifidog运行线程池模式下，设置线程数为20，队列数20。设置http并发数100，运行10分钟
-### 场景五 ###
-wifidog运行线程池模式下，设置线程数为5，队列数10。设置http并发数100，运行10分钟
-### 场景六 ###
-wifidog运行线程池模式下，设置线程数为5，队列数30。设置http并发数100，运行10分钟
-## 测试条件 ##
-wifidog启动中，并且没有进行过认证。
-## 测试工具 ##
-硬件：带apfree_wifidog的路由器一台、笔记本电脑一台<br />
-软件：Weebench web压力测试工具
-## 路由器配置 ##
-system type：Qualcomm Atheros QCA9533 ver 2 rev 0  <br />
-machine：KUNTENG KT9661<br />
-cpu model：MIPS 24Kc V7.4
-# 测试结果与分析 #
-## 场景一测试结果 ##
-Webbench - Simple Web Benchmark 1.5<br />
-Copyright (c) Radim Kolar 1997-2004, GPL Open Source Software.<br />
+如何调节线程数和列队深度使得wifidog处于一个相对均衡点（保证响应速度合适和最大并发失败率最低）
 
-Benchmarking: GET http://www.taobao.com/<br />
-100 clients, running 600 sec.<br />
+# 测试工具说明 #
+使用http_load测试工具测试，修正使用Weebench测试盲区Weebench会把wifidog列队溢出的数据列为成功响应数据，
+http_load则会把溢出数据列为失败数据，更加精准，
 
-Speed=1440 pages/min, 154622 bytes/sec.<br />
-Requests: 14239 susceed, 161 failed.
+# 测试环境和环境部署 #
+路由器X86网关端：
+CPU：Intel(R) Atom(TM) CPU D525 @ 1.80GHz
+关闭防火墙的防止洪水攻击，vi /etc/config/firewall option syn_flood	 设置为0 重启防火墙，保证并发有效。
+PC端：
+CPU：Intel(R) i5 6500 虚拟机分配4g内存 2个处理器。
+安装http_load工具，使用有线连接，排查wifi干扰因素。
 
-## 场景一结果分析 ##
-100 clients, running 600 sec ：并发数100 运行600秒。<br />
-每秒钟响应请求数=Speed=1440 pages/min，每秒钟传输数据量=154622 bytes/sec。<br />
-Requests: 14239 susceed, 161 failed：14239个请求成功，161个失败。成功率98.87%。
-## 场景二测试结果 ##
-Webbench - Simple Web Benchmark 1.5<br />
-Copyright (c) Radim Kolar 1997-2004, GPL Open Source Software.<br />
+## 测试理论 ##
+通过前台debug wifidog 查看列队溢出，以及其他异常情况（目前除了列队溢出，没出现其他锁死之类的异常情况）
+查看http_load结果，分析失败概率，以及响应时间，通过结果推导最优阀门参数
 
-Benchmarking: GET http://www.taobao.com/<br />
-100 clients, running 600 sec.<br />
 
-Speed=1467 pages/min, 159190 bytes/sec.<br />
-Requests: 14518 susceed, 161 failed.
+# 所有场景均在线程池模式运行 #
 
-## 场景二结果分析 ##
-100 clients, running 600 sec ：并发数100 运行600秒。<br />
-每秒钟响应请求数=Speed=1467 pages/min，每秒钟传输数据量=159190 bytes/sec。<br />
-Requests: 14518 susceed, 161 failed：14518个请求成功，161个失败。成功率98.89%。
-## 场景三测试结果 ##
-Webbench - Simple Web Benchmark 1.5<br />
-Copyright (c) Radim Kolar 1997-2004, GPL Open Source Software.<br />
+# 线程数影响分析 #
+###设置线程数为5， 队列数20。设置http并发数25，运行30S###
+debug数据：溢出778个数据，top：cpu利用率75左右 人眼观看的
+pc数据：发送26943数据。失败772，返回307:26171，平均响应25.6954ms，最慢响应137.339ms，最快响应0.254ms
 
-Benchmarking: GET http://www.taobao.com/<br />
-100 clients, running 600 sec.<br />
+###设置线程数为10， 队列数20。设置http并发数25，运行30S###
+debug数据：溢出14个数据，top：cpu利用率80左右   	          
+pc数据：发送28904数据。失败14，返回307:28890，平均响应23.7935ms，最慢响应229.247ms，最快响应1.123ms
+## 对比上诉2个结果加大线程数可以有效减少失败率，但是最慢响应速度会有所加大，并不会影响太大的体验，保证成功率是关键 ##
 
-Speed=1437 pages/min, 153698 bytes/sec.<br />
-Requests: 14159 susceed, 220 failed.
+###设置线程数为15， 队列数20。设置http并发数25，运行30S###
+debug数据：溢出18个数据，top：cpu利用率82左右   	          
+pc数据：发送31959数据。失败18，返回307:31941，平均响应21.1775ms，最慢响应274.758ms，最快响应2.179ms
+## 对比上诉2个结果加大线程数继续加大，并没有实际意义，反而会使得最慢响应有所增加。##
+## 线程数目前最优值设置为10对应路由器合适，通过加大并发数结果3个也是成线性增加，这里不做阐述。## 
 
-## 场景三结果分析 ##
-100 clients, running 600 sec ：并发数100 运行600秒。<br />
-每秒钟响应请求数=Speed=1437 pages/min，每秒钟传输数据量=153698 bytes/sec。<br />
-Requests: 14159 susceed, 220 failed：14159个请求成功，220个失败。成功率98.45%。
-## 场景四测试结果 ##
-Webbench - Simple Web Benchmark 1.5<br />
-Copyright (c) Radim Kolar 1997-2004, GPL Open Source Software.<br />
 
-Benchmarking: GET http://www.taobao.com/<br />
-100 clients, running 600 sec.<br />
 
-Speed=1421 pages/min, 151708 bytes/sec.<br />
-Requests: 13977 susceed, 235 failed.
 
-## 场景四结果分析 ##
-100 clients, running 600 sec ：并发数100 运行600秒。<br />
-每秒钟响应请求数=Speed=1421 pages/min，每秒钟传输数据量=151708 bytes/sec。<br />
-Requests: 13977 susceed, 235 failed：13977个请求成功，235个失败。成功率98.32%。
-## 场景五测试结果 ##
-Webbench - Simple Web Benchmark 1.5<br />
-Copyright (c) Radim Kolar 1997-2004, GPL Open Source Software.<br />
+# 队列深度数影响分析 #
+###设置线程数为10， 队列数20。设置http并发数25，运行30S###
+debug数据：溢出14个数据 	          
+pc数据：发送28904数据。失败14，返回307:28890，平均响应23.7935ms，最慢响应229.247ms，最快响应1.123ms
 
-Benchmarking: GET http://www.taobao.com/<br />
-100 clients, running 600 sec.<br />
+###设置线程数为10， 队列数40。设置http并发数25，运行30S###
+debug数据：溢出0个数据   	          
+pc数据：发送30785数据。失败0，返回307:30785，平均响应22.1519ms，最慢响应229.986ms，最快响应3.319ms
 
-Speed=1410 pages/min, 130405 bytes/sec.<br />
-Requests: 13897 susceed, 209 failed.
+结论：明显加大列队深度可以有效减少溢出失败率，而去能力有余的时候不会影响响应时间，下面加大并发数
 
-## 场景五结果分析 ##
-100 clients, running 600 sec ：并发数100 运行600秒。<br />
-每秒钟响应请求数=Speed=1410 pages/min，每秒钟传输数据量=130405 bytes/sec。<br />
-Requests: 13897 susceed, 209 failed：13897个请求成功，209个失败。成功率98.50%。
-## 场景六测试结果 ##
-Webbench - Simple Web Benchmark 1.5<br />
-Copyright (c) Radim Kolar 1997-2004, GPL Open Source Software.<br />
+###设置线程数为10， 队列数40。设置http并发数50，运行30S###
+debug数据：溢出0个数据 	          
+pc数据：发送30617数据。失败0，返回307:30617，平均响应30.8458ms，最慢响应432.654ms，最快响应5.051ms
 
-Benchmarking: GET http://www.taobao.com/<br />
-100 clients, running 600 sec.<br />
+结论：并发数的加大 还在wifidog能力范围，但是效率上已经有所减低，响应时间慢了一倍。继续加大并发数达到溢出点测试
 
-Speed=1442 pages/min, 153896 bytes/sec.<br />
-Requests: 14207 susceed, 213 failed.
 
-## 场景六结果分析 ##
-100 clients, running 600 sec ：并发数100 运行600秒。<br />
-每秒钟响应请求数=Speed=1442 pages/min，每秒钟传输数据量=153896 bytes/sec。<br />
-Requests: 14207 susceed, 213 failed：14207个请求成功，213个失败。成功率98.50%。
-# 测试总结 #
-**场景一**<br />
-在100个并发数的情况下每秒响应的http请求为1440,<br />
-14239个请求成功，161个失败。成功率98.87%。<br />
-**场景二**<br />
-在100个并发数的情况下每秒响应的http请求为1467,<br />
-14518个请求成功，161个失败。成功率98.89%。<br />
-**场景三**<br />
-在100个并发数的情况下每秒响应的http请求为1437,<br />
-14159个请求成功，220个失败。成功率98.45%。<br />
-**场景四**<br />
-在100个并发数的情况下每秒响应的http请求为1421,<br />
-13977个请求成功，235个失败。成功率98.32%。<br />
-**场景五**<br />
-在100个并发数的情况下每秒响应的http请求为1410,<br />
-13897个请求成功，209个失败。成功率98.50%。<br />
-**场景六**<br />
-在100个并发数的情况下每秒响应的http请求为1442,<br />
-14207个请求成功，213个失败。成功率98.50%。<br />
+由于PC端速度不够，需要改为小路由测试，后续再补发小路由测试，
+感觉3W的并发小路由处理起来也是绰绰有余需要几台电脑一起挂数据才能很好测试，
+还有一个点理论上并发多少又能带载多少的设备是一个学问。
 
-综合以上数据，场景二下wifidog运行最好，但是整体差别不大。
 
-# 补充说明 #
-以上测试数据是在无线干扰较大的情况下的测试数据，下面补充一条在有线情况下的数据：<br />
-Webbench - Simple Web Benchmark 1.5<br />
-Copyright (c) Radim Kolar 1997-2004, GPL Open Source Software.<br />
 
-Benchmarking: GET http://www.taobao.com/<br />
-100 clients, running 600 sec.<br />
-
-Speed=1504 pages/min, 18475 bytes/sec.<br />
-Requests: 15043 susceed, 0 failed.
-
-100 clients, running 600 sec ：并发数100 运行600秒。<br />
-每秒钟响应请求数=Speed=1504 pages/min，每秒钟传输数据量=18475 bytes/sec。<br />
-Requests: 15043 susceed, 0 failed：15043个请求成功，0个失败。成功率100%。
 
